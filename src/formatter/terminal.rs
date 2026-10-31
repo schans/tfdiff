@@ -1,7 +1,6 @@
 use crate::{ActionType, Change, TerraformPlan};
 use colored::*;
 use serde_json::Value;
-use std::collections::HashMap;
 
 pub fn format_terminal_output(plan: &TerraformPlan) -> String {
     let mut output = String::new();
@@ -30,7 +29,7 @@ pub fn format_terminal_output(plan: &TerraformPlan) -> String {
         || plan.summary.destroy > 0
         || plan.summary.read > 0
     {
-        output.push_str(&"📊 ".to_string());
+        output.push_str("📊 ");
         output.push_str(&"PLAN SUMMARY".bright_white().bold().to_string());
         output.push('\n');
         output.push_str(&"─".repeat(80).dimmed().to_string());
@@ -74,7 +73,7 @@ pub fn format_terminal_output(plan: &TerraformPlan) -> String {
 
     // Resources with enhanced formatting
     if !plan.resources.is_empty() {
-        output.push_str(&"🔧 ".to_string());
+        output.push_str("🔧 ");
         output.push_str(&"RESOURCES".bright_white().bold().to_string());
         output.push('\n');
         output.push_str(&"─".repeat(80).dimmed().to_string());
@@ -89,7 +88,7 @@ pub fn format_terminal_output(plan: &TerraformPlan) -> String {
 
     // Data sources section
     if !plan.data_sources.is_empty() {
-        output.push_str(&"📊 ".to_string());
+        output.push_str("📊 ");
         output.push_str(&"DATA SOURCES".bright_white().bold().to_string());
         output.push('\n');
         output.push_str(&"─".repeat(80).dimmed().to_string());
@@ -104,7 +103,7 @@ pub fn format_terminal_output(plan: &TerraformPlan) -> String {
 
     // Warnings section
     if !plan.warnings.is_empty() {
-        output.push_str(&"⚠️  ".to_string());
+        output.push_str("⚠️  ");
         output.push_str(&"WARNINGS".bright_yellow().bold().to_string());
         output.push('\n');
         output.push_str(&"─".repeat(80).dimmed().to_string());
@@ -167,6 +166,10 @@ pub fn format_resource(resource: &crate::Resource) -> String {
         ActionType::Create => format!(" {} ", "CREATE").on_bright_green().black().bold(),
         ActionType::Update => format!(" {} ", "UPDATE").on_bright_yellow().black().bold(),
         ActionType::Destroy => format!(" {} ", "DESTROY").on_bright_red().white().bold(),
+        ActionType::Replace => format!(" {} ", "REPLACE")
+            .on_bright_magenta()
+            .black()
+            .bold(),
         ActionType::Read => format!(" {} ", "READ").on_bright_cyan().black().bold(),
         ActionType::NoOp => format!(" {} ", "NO-OP").on_bright_black().white().bold(),
     };
@@ -215,31 +218,7 @@ pub fn format_resource(resource: &crate::Resource) -> String {
                             continue;
                         }
 
-                        output.push_str(&format!(
-                            "  {} {}\n",
-                            "~".bright_yellow().bold(),
-                            key.bright_cyan()
-                        ));
-
-                        let max_width = 40;
-                        let before_truncated = if before.len() > max_width {
-                            format!("{}...", &before[..max_width - 3])
-                        } else {
-                            before.to_string()
-                        };
-                        let after_truncated = if after.len() > max_width {
-                            format!("{}...", &after[..max_width - 3])
-                        } else {
-                            after.to_string()
-                        };
-
-                        output.push_str(&format!(
-                            "    {} {:<40} │ {} {}\n",
-                            "─".bright_red(),
-                            before_truncated.bright_red(),
-                            "+".bright_green(),
-                            after_truncated.bright_green()
-                        ));
+                        output.push_str(&format_modification(key, before, after));
                         continue;
                     }
                 }
@@ -258,20 +237,6 @@ pub fn format_resource(resource: &crate::Resource) -> String {
 
 fn format_changes(changes: &[Change], _action: &ActionType) -> String {
     let mut output = String::new();
-
-    // Group changes by their path for better organization
-    let mut grouped_changes: HashMap<String, Vec<&Change>> = HashMap::new();
-    for change in changes {
-        let path_key = if change.path.is_empty() {
-            "root".to_string()
-        } else {
-            change.path[0].clone()
-        };
-        grouped_changes
-            .entry(path_key)
-            .or_insert_with(Vec::new)
-            .push(change);
-    }
 
     for change in changes {
         let path_str = if change.path.is_empty() {
@@ -300,7 +265,7 @@ fn format_changes(changes: &[Change], _action: &ActionType) -> String {
                     format_json_value(before, 2).bright_red()
                 ));
             }
-            (Some(before), Some(after)) if before != after => {
+            (Some(before), Some(after)) if change.is_modified() => {
                 // Check if this is a DESTROY action with null after value
                 if let ActionType::Destroy = _action {
                     if after == &Value::Null {
@@ -315,36 +280,10 @@ fn format_changes(changes: &[Change], _action: &ActionType) -> String {
                     }
                 }
 
-                // Modification - show side by side with aligned columns
-                let before_formatted = format_json_value(before, 0);
-                let after_formatted = format_json_value(after, 0);
-
-                output.push_str(&format!(
-                    "  {} {}\n",
-                    "~".bright_yellow().bold(),
-                    path_str.bright_cyan()
-                ));
-
-                // Calculate column widths for alignment
-                let max_width = 40; // Maximum width for each column
-                let before_truncated = if before_formatted.len() > max_width {
-                    format!("{}...", &before_formatted[..max_width - 3])
-                } else {
-                    before_formatted.clone()
-                };
-                let after_truncated = if after_formatted.len() > max_width {
-                    format!("{}...", &after_formatted[..max_width - 3])
-                } else {
-                    after_formatted.clone()
-                };
-
-                // Show side-by-side with clear visual separation
-                output.push_str(&format!(
-                    "    {} {:<40} │ {} {}\n",
-                    "─".bright_red(),
-                    before_truncated.bright_red(),
-                    "+".bright_green(),
-                    after_truncated.bright_green()
+                output.push_str(&format_modification(
+                    &path_str,
+                    &format_json_value(before, 0),
+                    &format_json_value(after, 0),
                 ));
             }
             _ => {
@@ -363,13 +302,35 @@ fn format_changes(changes: &[Change], _action: &ActionType) -> String {
         if change.sensitive {
             output.push_str(&format!(
                 "    {} {}\n",
-                "🔒".to_string(),
+                "🔒",
                 "(sensitive value)".italic().dimmed()
             ));
         }
     }
 
     output
+}
+
+/// A modified attribute: its name, then the old and new value side by side in aligned columns.
+fn format_modification(name: &str, before: &str, after: &str) -> String {
+    format!(
+        "  {} {}\n    {} {:<40} │ {} {}\n",
+        "~".bright_yellow().bold(),
+        name.bright_cyan(),
+        "─".bright_red(),
+        truncate(before, 40).bright_red(),
+        "+".bright_green(),
+        truncate(after, 40).bright_green()
+    )
+}
+
+/// Shorten to at most `max_width` characters, cutting on a char boundary.
+fn truncate(s: &str, max_width: usize) -> String {
+    if s.chars().count() > max_width {
+        format!("{}...", s.chars().take(max_width - 3).collect::<String>())
+    } else {
+        s.to_string()
+    }
 }
 
 fn format_json_value(value: &Value, indent_level: usize) -> String {

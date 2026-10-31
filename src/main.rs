@@ -146,6 +146,7 @@ fn main() -> Result<()> {
                 tfdiff::ActionType::Create => "create",
                 tfdiff::ActionType::Update => "update",
                 tfdiff::ActionType::Destroy => "destroy",
+                tfdiff::ActionType::Replace => "replace",
                 tfdiff::ActionType::Read => "read",
                 tfdiff::ActionType::NoOp => "noop",
             };
